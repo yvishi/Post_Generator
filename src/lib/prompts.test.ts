@@ -69,12 +69,22 @@ describe('checkPrompt', () => {
     expect(out).toContain('<research_facts>');
     for (const rule of ['unsupported_claim', 'brand_fact', 'tone', 'audience', 'format', 'other']) expect(out).toContain(rule);
   });
+
+  it('separates hard channel rules from style guidance', () => {
+    const out = checkPrompt({ draft: { type: 'linkedin', content: { text: 'Hi' } }, research });
+    const hard = out.slice(out.indexOf('Hard rules'), out.indexOf('Guidance'));
+    expect(hard).toContain('One LinkedIn post.');
+    expect(hard).not.toContain('120–220 words');
+    expect(out).toContain('Guidance (style targets, not rules):\n- About 120–220 words');
+    expect(out).toMatch(/"Guidance" target[^.]*is at most a minor issue, never blocking/);
+  });
 });
 
 describe('reportPrompt', () => {
   it('nests the pieces and explains held status', () => {
     const out = reportPrompt({ research, pieces: [{ type: 'blog', status: 'held', draft: null, attempts: [] }] });
     expect(out).toContain('<pieces>');
-    expect(out).toContain('held');
+    expect(out).toContain('"status": "held"');
+    expect(out).not.toContain('imageDataUrl');
   });
 });

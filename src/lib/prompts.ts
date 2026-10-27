@@ -29,18 +29,50 @@ export const BRAND_RULES = `Brand rules for Vidya AI (these override anything el
 - Only use facts from <research_facts> and cite them by id. Every number, price, date, offer, feature, rating or statistic must come from a fact there. Never invent statistics, testimonials, quotes, prices, dates or guarantees.
 - User notes steer emphasis, angle and call to action; they are not facts. If a note asks for a claim that no research fact supports, leave the claim out.`;
 
-/** Channel spec per content type: counts and hard limits. Character limits are also enforced in code. */
-const CHANNEL_SPEC: Record<ContentType, string> = {
-  blog: `One blog post for parents: a clear, specific title and at least ${BLOG_MIN_SECTIONS} sections (aim for 3–5), each with a heading and a body of 2–4 short paragraphs. Practical and helpful first; mention Vidya AI naturally, with one gentle call to action near the end.`,
-  linkedin: `One LinkedIn post (about 120–220 words) addressed to parents: a first line that earns attention without clickbait, short paragraphs, one clear call to action, at most 3 hashtags at the end.`,
-  x_thread: `One X thread of 3–6 posts. Every post must be at most ${X_POST_MAX} characters, counting spaces, emoji and hashtags. The first post must stand on its own; the last carries the call to action. Do not number the posts.`,
-  instagram: `One Instagram caption: a warm opening line, 60–150 words, line breaks for readability, a call to action, and at least 1 hashtag (aim for 5–10 relevant ones) in the hashtag list, not in the caption.`,
-  meta_ads: `Exactly 3 Meta ad variations, each testing a different angle. Each has primaryText (1–3 short sentences, 125 characters or fewer is ideal), a headline (at most about 40 characters) and a cta (a short button label such as "Start free trial" or "Learn more"). All three fields are required.`,
-  google_ads: `Exactly 3 Google search ad variations. Each has exactly 3 headlines of at most ${GOOGLE_HEADLINE_MAX} characters each and exactly 2 descriptions of at most ${GOOGLE_DESCRIPTION_MAX} characters each, counting spaces. Count carefully: these limits are hard and over-long text is rejected.`,
-  image: `One image brief for a single marketing visual: concept (what the image shows and the feeling it gives parents), style (look, palette, lighting), composition (framing, subjects, where space is left for text), and altText (one plain sentence describing the image). Show learning and calm support, e.g. a child working through a step with a parent nearby; never a screen showing finished answers, never stressed or crying children. Avoid rendered text in the image, and do not depict real people or other brands.`,
+/**
+ * Channel spec per content type. `hard` holds only the constraints.md counts and limits (a break is a blocking
+ * format issue; character limits are also enforced in code). `guidance` is style targets: missing one is at most minor.
+ */
+const CHANNEL_SPEC: Record<ContentType, { hard: string[]; guidance: string }> = {
+  blog: {
+    hard: ['One blog post with a non-empty title.', `At least ${BLOG_MIN_SECTIONS} sections, each with a heading and a body.`],
+    guidance: 'Aim for 3–5 sections of 2–4 short paragraphs. Practical and helpful first; mention Vidya AI naturally, with one gentle call to action near the end.',
+  },
+  linkedin: {
+    hard: ['One LinkedIn post.'],
+    guidance: 'About 120–220 words, a first line that earns attention without clickbait, short paragraphs, one clear call to action, at most 3 hashtags at the end.',
+  },
+  x_thread: {
+    hard: ['One X thread with at least 1 post.', `Every post is at most ${X_POST_MAX} characters, counting spaces, emoji and hashtags.`],
+    guidance: 'Aim for 3–6 posts. The first post stands on its own; the last carries the call to action. Do not number the posts.',
+  },
+  instagram: {
+    hard: ['One Instagram caption.', 'At least 1 hashtag, in the hashtag list rather than the caption.'],
+    guidance: 'A warm opening line, about 60–150 words, line breaks for readability, a call to action, and 5–10 relevant hashtags.',
+  },
+  meta_ads: {
+    hard: ['Exactly 3 Meta ad variations.', 'Each variation has a non-empty primaryText, headline and cta.'],
+    guidance: 'Each variation tests a different angle. primaryText of 1–3 short sentences (about 125 characters), a headline of about 40 characters, and a cta that is a short button label such as "Start free trial" or "Learn more".',
+  },
+  google_ads: {
+    hard: [
+      'Exactly 3 Google search ad variations.',
+      `Each has exactly 3 headlines of at most ${GOOGLE_HEADLINE_MAX} characters each, counting spaces.`,
+      `Each has exactly 2 descriptions of at most ${GOOGLE_DESCRIPTION_MAX} characters each, counting spaces.`,
+    ],
+    guidance: 'Count characters carefully. Vary the headlines so any combination reads well together.',
+  },
+  image: {
+    hard: ['One image brief with a non-empty concept, style, composition and altText.'],
+    guidance:
+      'concept: what the image shows and the feeling it gives parents; style: look, palette, lighting; composition: framing, subjects, where space is left for text; altText: one plain sentence describing the image. Show learning and calm support, e.g. a child working through a step with a parent nearby; never a screen showing finished answers, never stressed or crying children. Avoid rendered text in the image, and do not depict real people or other brands.',
+  },
 };
 
-const channel = (type: ContentType) => `Channel: ${CONTENT_META[type].label}\n${CHANNEL_SPEC[type]}`;
+const channel = (type: ContentType) => {
+  const { hard, guidance } = CHANNEL_SPEC[type];
+  return `Channel: ${CONTENT_META[type].label}\nHard rules (must be met):\n${hard.map((r) => `- ${r}`).join('\n')}\nGuidance (style targets, not rules):\n- ${guidance}`;
+};
 
 const formNotes = (topic?: string, notes?: string) =>
   [topic && `Topic: ${topic}`, notes && `Notes: ${notes}`].filter(Boolean).join('\n');
@@ -155,7 +187,7 @@ export function checkPrompt(req: CheckRequest): string {
 1. Grounded: every factual claim (numbers, prices, offers, features, dates, ratings, statistics) matches a fact in <research_facts>. Prices and offers must match those facts exactly.
 2. On-brand: warm, patient, reassuring, addressed to parents, consistent with "explains each step, never just gives the answer".
 3. Within constraints: CBSE/ICSE only, English/Hindi only, a supplement to school.
-4. Channel rules: the channel spec above is met (counts, required fields, character limits).
+4. Channel rules: every "Hard rules" line above is met (counts, required fields, character limits). The "Guidance" lines are style targets, not rules.
 5. Relevant to the topic and notes in <user_notes>.
 
 Report each problem as an issue:
@@ -164,9 +196,9 @@ Report each problem as an issue:
   - brand_fact: a Vidya fact stated wrongly (price, offer, trial, board, language, date, feature)
   - tone: pushy, fear-based, guilt-tripping, salesy, or implies the AI gives answers or does homework
   - audience: aimed at students instead of parents, or off the topic and notes
-  - format: breaks the channel spec (count, missing field, too long)
+  - format: breaks a "Hard rules" line of the channel spec (count, missing field, over a character limit). Missing a "Guidance" target (word count, number of posts or hashtags, an approximate length) is at most a minor issue, never blocking.
   - other: anything else worth fixing
-- severity: "blocking" for an unsupported or invented claim, a wrong brand fact, the wrong audience, a tone that breaks the brand rules, or a format break. Everything else (style, word choice, a weaker hook) is "minor". Only blocking issues fail the draft; minor issues are passed to the marketer as notes. Do not mark taste as blocking.
+- severity: "blocking" for an unsupported or invented claim, a wrong brand fact, the wrong audience, a tone that breaks the brand rules, or a break of a hard channel rule. Everything else (style, guidance targets, word choice, a weaker hook) is "minor". Only blocking issues fail the draft; minor issues are passed to the marketer as notes. Do not mark taste as blocking.
 - quote: the offending line copied verbatim from the draft, or "" if the issue is about the whole piece.
 - problem: what is wrong, in one sentence.
 - fix: a concrete replacement or edit the copywriter can apply.
