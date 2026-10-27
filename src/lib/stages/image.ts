@@ -1,5 +1,5 @@
 import 'server-only';
-import { getApiKey, IMAGE_MODEL_ID } from '../models';
+import { getApiKey, IMAGE_MODEL_ID, IMAGE_TIMEOUT_MS } from '../models';
 import { draftSchemas, type ImageRequest } from '../types';
 
 const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
@@ -23,21 +23,30 @@ export async function generateImage(
   req: ImageRequest,
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ imageDataUrl: string }> {
-  const res = await fetchImpl(ENDPOINT, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${getApiKey()}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: IMAGE_MODEL_ID,
-      modalities: ['image', 'text'],
-      messages: [{ role: 'user', content: imagePrompt(req.brief) }],
-    }),
-  });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(`Image generation failed (HTTP ${res.status})${detail ? `: ${detail.slice(0, 300)}` : ''}`);
+  const prompt = imagePrompt(req.brief);
+  // One signal covers the request and the body read, so a stalled body also times out.
+  const signal = AbortSignal.timeout(IMAGE_TIMEOUT_MS);
+  try {
+    const res = await fetchImpl(ENDPOINT, {
+      method: 'POST',
+      signal,
+      headers: { Authorization: `Bearer ${getApiKey()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: IMAGE_MODEL_ID, modalities: ['image', 'text'], messages: [{ role: 'user', content: prompt }] }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(`Image generation failed (HTTP ${res.status})${detail ? `: ${detail.slice(0, 300)}` : ''}`);
+    }
+    const json = (await res.json()) as { choices?: { message?: { images?: { image_url?: { url?: string } }[] } }[] };
+    const url = json.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+    if (!url) throw new Error('No image returned');
+    return { imageDataUrl: url };
+  } catch (e) {
+    // DOMException is not always an `Error` instance, so read the name structurally.
+    const name = (e as { name?: string } | null)?.name;
+    if (name === 'TimeoutError' || name === 'AbortError') {
+      throw new Error(`Image generation timed out after ${IMAGE_TIMEOUT_MS / 1000}s`);
+    }
+    throw e;
   }
-  const json = (await res.json()) as { choices?: { message?: { images?: { image_url?: { url?: string } }[] } }[] };
-  const url = json.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-  if (!url) throw new Error('No image returned');
-  return { imageDataUrl: url };
 }

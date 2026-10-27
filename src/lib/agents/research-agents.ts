@@ -4,7 +4,7 @@ import { generateText, Output, type LanguageModel } from 'ai';
 import { z } from 'zod';
 import { BRAND_FACTS, CLIENT_SITE_URL } from '../brand-facts';
 import { fetchPage } from '../fetch-page';
-import { searchModel as defaultSearchModel, textModel } from '../models';
+import { MODEL_MAX_RETRIES, RESEARCH_CALL_TIMEOUT_MS, searchModel as defaultSearchModel, textModel } from '../models';
 import { audiencePrompt, brandPrompt, mergePrompt, topicPrompt } from '../prompts';
 import { angleSchema, factSchema, type Angle, type Fact, type ResearchRequest } from '../types';
 
@@ -16,10 +16,12 @@ const brandOutput = z.object({
 });
 const topicOutput = z.object({ facts: z.array(factSchema) });
 const audienceOutput = z.object({ angles: z.array(angleSchema) });
-const mergeOutput = z.object({ facts: z.array(factSchema), angles: z.array(angleSchema) });
+const mergeOutput = z.object({ keptIds: z.array(z.string()), angles: z.array(angleSchema) });
+
+const limits = { timeout: RESEARCH_CALL_TIMEOUT_MS, maxRetries: MODEL_MAX_RETRIES };
 
 async function generate<T>(model: LanguageModel, schema: z.ZodType<T>, prompt: string): Promise<T> {
-  const { output } = await generateText({ model, output: Output.object({ schema }), prompt });
+  const { output } = await generateText({ model, output: Output.object({ schema }), prompt, ...limits });
   return output;
 }
 
@@ -82,7 +84,7 @@ export async function researchTopic(
     return number(out.facts.map((f) => ({ ...f, sourceUrl: input.link! })));
   }
 
-  const search = await generateText({ model: deps.searchModel ?? defaultSearchModel(), prompt: topicPrompt(input) });
+  const search = await generateText({ model: deps.searchModel ?? defaultSearchModel(), prompt: topicPrompt(input), ...limits });
   const sourceUrls = search.sources.flatMap((s) => (s.sourceType === 'url' ? [s.url] : []));
   // Real provider sources are trusted alone; URLs in the prose are a fallback only when there are none,
   // so a URL the search model invented in its text cannot pass.
@@ -114,7 +116,7 @@ export async function researchAudience(
 }
 
 /**
- * Dedupes and filters the research. The merger only chooses which facts to keep: each kept fact is the
+ * Dedupes and filters the research. The merger returns only the ids of the facts to keep: each kept fact is the
  * original (id, text, sourceUrl), so the model cannot reword or invent one. Throws if it keeps no known fact.
  */
 export async function mergeResearch(
@@ -125,7 +127,7 @@ export async function mergeResearch(
 ): Promise<{ facts: Fact[]; angles: Angle[] }> {
   const out = await generate(model, mergeOutput, mergePrompt(brand, topic, audience));
   const originals = new Map([...brand, ...topic].map((f) => [f.id, f]));
-  const keptIds = new Set(out.facts.map((f) => f.id).filter((id) => originals.has(id)));
+  const keptIds = new Set(out.keptIds.filter((id) => originals.has(id)));
   if (keptIds.size === 0) throw new Error('Merger kept no known facts');
   const facts = [...originals.values()].filter((f) => keptIds.has(f.id));
   return { facts, angles: keepKnownAngles(out.angles, keptIds) };

@@ -60,6 +60,11 @@ describe('mergePrompt', () => {
     const out = mergePrompt(BRAND_FACTS, [], [{ angle: 'calm exam prep', factIds: ['brand-1'] }]);
     for (const tag of ['brand_facts', 'topic_facts', 'audience_research']) expect(out).toContain(`<${tag}>`);
   });
+
+  it('asks for the kept fact ids, not the facts themselves', () => {
+    const out = mergePrompt(BRAND_FACTS, [], []);
+    expect(out).toContain('keptIds');
+  });
 });
 
 describe('checkPrompt', () => {

@@ -1,3 +1,4 @@
+import { APICallError } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { CheckRequest, DraftRequest, Issue } from '../types';
@@ -82,6 +83,29 @@ describe('draftPiece', () => {
   });
 });
 
+describe('call limits', () => {
+  it('text stage calls carry a timeout signal', async () => {
+    const check = mockModel(JSON.stringify({ pass: true, reasoning: 'ok', issues: [], factIdsUsed: [] }));
+    await checkPiece({ draft: { type: 'linkedin', content: { text: 'Hi' } }, research }, check);
+    const report = mockModel(JSON.stringify({ summary: 'ok' }));
+    await writeReport({ research, pieces: [] }, report);
+    const draft = mockModel(JSON.stringify({ text: 'Hi' }));
+    await draftPiece({ type: 'linkedin', research }, draft);
+
+    for (const m of [check, report, draft]) expect(m.doGenerateCalls[0].abortSignal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('a retryable API error is retried only once', async () => {
+    const model = new MockLanguageModelV4({
+      doGenerate: async () => {
+        throw new APICallError({ message: 'overloaded', url: 'x', requestBodyValues: {}, statusCode: 503, isRetryable: true });
+      },
+    });
+    await expect(writeReport({ research, pieces: [] }, model)).rejects.toThrow();
+    expect(model.doGenerateCalls).toHaveLength(2);
+  });
+});
+
 describe('generateImage', () => {
   const brief = {
     type: 'image' as const,
@@ -108,6 +132,17 @@ describe('generateImage', () => {
   it('rejects when no image is returned', async () => {
     const fetchImpl = fakeFetch({ choices: [{ message: { content: 'sorry' } }] });
     await expect(generateImage({ brief }, fetchImpl as unknown as typeof fetch)).rejects.toThrow('No image returned');
+  });
+
+  it('sends a timeout signal and reports a timeout in plain words', async () => {
+    const fetchImpl = fakeFetch({ choices: [{ message: { images: [{ image_url: { url: 'data:x' } }] } }] });
+    await generateImage({ brief }, fetchImpl as unknown as typeof fetch);
+    expect((fetchImpl.mock.calls[0][1] as { signal?: unknown }).signal).toBeInstanceOf(AbortSignal);
+
+    const slow = (async () => {
+      throw new DOMException('timed out', 'TimeoutError');
+    }) as unknown as typeof fetch;
+    await expect(generateImage({ brief }, slow)).rejects.toThrow('Image generation timed out after 50s');
   });
 
   it('includes status and body text on HTTP errors', async () => {

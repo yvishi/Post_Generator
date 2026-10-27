@@ -1,6 +1,6 @@
 import { generateText, Output, type LanguageModel } from 'ai';
 import type { z } from 'zod';
-import { textModel } from '../models';
+import { MODEL_MAX_RETRIES, STAGE_CALL_TIMEOUT_MS, textModel } from '../models';
 import { draftPrompt } from '../prompts';
 import { draftSchemas, type Draft, type DraftRequest } from '../types';
 
@@ -12,6 +12,8 @@ export async function draftPiece(req: DraftRequest, model: LanguageModel = textM
     model,
     output: Output.object({ schema }),
     prompt: draftPrompt(req),
+    timeout: STAGE_CALL_TIMEOUT_MS,
+    maxRetries: MODEL_MAX_RETRIES,
   });
   return { type: req.type, content: output };
 }

@@ -257,10 +257,7 @@ describe('research agents', () => {
       audience,
       mockModel(
         JSON.stringify({
-          facts: [
-            { id: 'topic-1', fact: 'Reworded!', sourceUrl: 'https://other' },
-            { id: 'invented-1', fact: 'Nope', sourceUrl: 'x' },
-          ],
+          keptIds: ['topic-1', 'invented-1'],
           angles: [
             { angle: 'A', factIds: ['brand-1', 'topic-1'] },
             { angle: 'C', factIds: ['topic-1'] },
@@ -268,7 +265,7 @@ describe('research agents', () => {
         }),
       ),
     );
-    // Original fact text is kept; brand-1 was dropped by the merger, so angle A only cites topic-1.
+    // Kept facts are the originals; brand-1 was dropped by the merger, so angle A only cites topic-1.
     expect(merged.facts).toEqual([topicFact]);
     expect(merged.angles).toEqual([
       { angle: 'A', factIds: ['topic-1'] },
@@ -276,9 +273,19 @@ describe('research agents', () => {
     ]);
   });
 
+  it('every research call carries a timeout signal', async () => {
+    const model = mockModel(JSON.stringify({ angles: [] }));
+    await researchAudience(BRAND_FACTS, [], { topic: 'x' }, model);
+    expect(model.doGenerateCalls[0].abortSignal).toBeInstanceOf(AbortSignal);
+
+    const merge = mockModel(JSON.stringify({ keptIds: ['brand-1'], angles: [] }));
+    await mergeResearch(BRAND_FACTS, [], [], merge);
+    expect(merge.doGenerateCalls[0].abortSignal).toBeInstanceOf(AbortSignal);
+  });
+
   it('merger that keeps no known facts throws so the stage falls back', async () => {
     await expect(
-      mergeResearch(BRAND_FACTS, [], [], mockModel(JSON.stringify({ facts: [{ id: 'z', fact: 'z', sourceUrl: 'z' }], angles: [] }))),
+      mergeResearch(BRAND_FACTS, [], [], mockModel(JSON.stringify({ keptIds: ['z'], angles: [] }))),
     ).rejects.toThrow(/no known facts/);
   });
 });

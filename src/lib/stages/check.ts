@@ -1,6 +1,6 @@
 import { generateText, Output, type LanguageModel } from 'ai';
 import { checkChannelRules } from '../channel-rules';
-import { textModel } from '../models';
+import { MODEL_MAX_RETRIES, STAGE_CALL_TIMEOUT_MS, textModel } from '../models';
 import { checkPrompt } from '../prompts';
 import { checkSchema, type Check, type CheckRequest, type Issue } from '../types';
 
@@ -12,6 +12,8 @@ export async function checkPiece(req: CheckRequest, model: LanguageModel = textM
     model,
     output: Output.object({ schema: checkSchema }),
     prompt: checkPrompt(req),
+    timeout: STAGE_CALL_TIMEOUT_MS,
+    maxRetries: MODEL_MAX_RETRIES,
   });
   const ruleIssues: Issue[] = checkChannelRules(req.draft).map((problem) => ({
     severity: 'blocking',

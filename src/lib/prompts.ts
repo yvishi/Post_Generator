@@ -130,7 +130,7 @@ export function mergePrompt(brand: Fact[], topic: Fact[], audience: Angle[]): st
     nest('topic_facts', topic),
     nest('audience_research', audience),
     `Rules:
-- Keep every fact's original id, text and sourceUrl. Never renumber, reword or invent facts.
+- Answer with keptIds: the ids of the facts to keep, exactly as given. Do not repeat the facts' text; never invent an id.
 - Remove exact or near duplicates, keeping the one from the live site (site-…) over the baseline (brand-…) when they overlap.
 - When a site fact contradicts a brand fact, keep the site fact and drop the brand fact: the live site wins.
 - Drop topic facts that are irrelevant to parents or to the topic.
