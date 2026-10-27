@@ -43,7 +43,7 @@ Success for the Friday demo, as the brief requires:
      - Every fact is structured as `{ id, fact, sourceUrl }`.
   2. **Drafter** (`/api/draft`, one call per piece) writes only the selected pieces. The merged fact sheet, the angles and the user's notes are nested into its prompt. It uses only those facts and invents no stats or claims.
   3. **Checker** reviews each piece against a checklist (§5). It returns pass/fail plus specific reasons.
-  4. **Revision loop, per piece.** A failed piece goes back to the drafter with the checker's feedback, up to **3 attempts in total**. If it still fails after the 3rd attempt, the piece is marked **failed** with the checker's reasoning. Pieces are independent, so one failing ad does not block or redo the others.
+  4. **Revision loop, per piece.** A failed piece goes back to the drafter with the checker's feedback, up to **3 attempts in total**. Each retry gets every issue from every earlier attempt and is asked to edit the best draft so far, not rewrite it. Only **blocking** issues fail a check; minor ones are passed on as notes. If it still fails after the 3rd attempt, the piece is **held for review** rather than failed: the client sees the best attempt's reasoning, each blocking issue with the quoted line and a suggested fix, and which problems recurred across attempts. They can then **revise with a note** (one more draft→check round) or **use it anyway**. Pieces are independent, so one held ad does not block or redo the others.
   5. **Final report agent** assembles the pack: every piece with its status, attempts, checker reasoning, and the facts used, plus the image brief and image.
 - **Results screen.** There is one card per piece:
   - **Passed card.** The post or ad is the main content, with a Copy button. A collapsed **"Show details"** section contains the checker reasoning, the number of passes taken, and the facts used.
@@ -107,7 +107,7 @@ Hard character limits should also be checked in code, deterministically, alongsi
 - Web search for topic-only input uses OpenRouter's web search option. Link input is fetched and converted to text server-side.
 - No login, no database, and no history.
 - **Demo runs locally** with `next dev` or `next start`, so there is no serverless timeout. A Vercel deploy is optional. If deployed, set `maxDuration` and keep pieces running in parallel.
-- A failed card's last draft lives under "Show details" so a human can still fix it by hand.
+- A held card's closest draft lives under "Details" so a human can still fix it by hand.
 - **Notes steer but are not evidence.** Notes set emphasis, angle, and CTA, e.g. "push the free trial". A factual claim, even one suggested by a note, must still appear in the research facts or the trusted brand facts. If a note asks for a claim that can't be grounded, the checker fails the piece for that reason.
 - **Trusted brand facts baseline.** A small hand-written config file holds Vidya's known offers and constraints, taken from the client site:
   - prices, the 7-day free trial with no card, and the 10 Nov coding batch
@@ -115,7 +115,7 @@ Hard character limits should also be checked in code, deterministically, alongsi
   - proof points: 1.8 lakh students, 22,000 paid families, 4.6★ from 12,000 reviews
 
   These facts are always passed to the drafter and checker as source `vidya-site`, and the brand researcher adds to them. If live research disagrees with the config, the live site wins and the conflict is noted in the report. If the brand researcher fails, the baseline keeps the pack grounded. The §5.3 values are checked against these facts rather than hardcoded in the prompt.
-- **Image depends on its brief.** The image brief goes through the checker loop like any other piece. If it passes, the image is generated. If it fails after 3 attempts, no image is generated, and the image card shows the failure reasoning, the same as other failed cards. Image generation therefore runs after its brief passes, while other pieces continue in parallel.
+- **Image depends on its brief.** The image brief goes through the checker loop like any other piece. If it passes, the image is generated. If it is held after 3 attempts, no image is generated until the client revises the brief or uses it anyway, and the image card shows why it was held, the same as other held cards. Image generation therefore runs after its brief passes, while other pieces continue in parallel.
 - **Both research paths are built and tested:** link fetch, and web search when only a topic is given. This holds whatever form the shared test topic takes.
 
 ## 8. Left to the builder

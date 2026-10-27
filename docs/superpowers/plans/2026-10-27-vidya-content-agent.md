@@ -21,14 +21,15 @@
 - Prompt nesting: prior outputs enter a prompt only through `nest(tag, value)`, which produces `<tag>…</tag>`. Tags used:
   - `<brand_facts>`, `<topic_facts>`, `<audience_research>`
   - `<research_facts>`, `<angles>`
-  - `<user_notes>`, `<previous_draft>`, `<checker_feedback>`, `<draft>`
+  - `<user_notes>`, `<previous_draft>`, `<checker_feedback>`, `<revision_note>`, `<draft>`
   - `<source_page>`, `<pieces>`
 - `OPENROUTER_API_KEY` is server-only, and files using it start with `import 'server-only'`.
 - Model ids come from env vars, with these defaults:
   - `TEXT_MODEL=google/gemini-2.5-flash`
   - `SEARCH_MODEL=google/gemini-2.5-flash:online`
   - `IMAGE_MODEL=google/gemini-2.5-flash-image`
-- `MAX_ATTEMPTS = 3` drafter attempts per piece. After the 3rd failed check the piece is `failed` with the last checker reasons.
+- `MAX_ATTEMPTS = 3` drafter attempts per piece. After the 3rd failed check the piece is `held`: it keeps the best attempt (fewest blocking issues, then fewest minor, then latest) and shows the client why it was held. The client can then "Revise with my note" (one more draft→check round that also gets their note) or "Use anyway".
+- Only `blocking` issues fail a check. `minor` issues are shown as notes and never cost a retry.
 - Content types and fixed counts: blog 1, linkedin 1, x_thread 1, instagram 1, meta_ads 3 variations, google_ads 3 variations, image 1 (brief + generated image).
 - Channel limits:
   - X post ≤ 280 chars
@@ -78,12 +79,13 @@
   - google_ads `{variations: [{headlines: string[3], descriptions: string[2]}] length 3}`
   - image `{concept, style, composition, altText}`
 - `Draft = { type: ContentType; content: unknown }`
-- `Check = { pass: boolean; reasons: string[]; factIdsUsed: string[] }`
-- `Attempt = { draft: Draft; check: Check }`
-- `PieceResult = { type; status: 'passed'|'failed'; draft: Draft|null; attempts: Attempt[]; failureReasons: string[]; imageDataUrl?: string }`
+- `Issue = { severity: 'blocking'|'minor'; rule: 'unsupported_claim'|'brand_fact'|'tone'|'audience'|'format'|'other'; quote: string; problem: string; fix: string }`. `quote` is the offending line verbatim, or `''` for whole-piece issues.
+- `Check = { pass: boolean; reasoning: string; issues: Issue[]; factIdsUsed: string[] }`. `pass` is computed in code as "no blocking issues", never taken from the LLM.
+- `Attempt = { draft: Draft; check: Check; userNote?: string }`
+- `PieceResult = { type; status: 'passed'|'held'|'error'; draft: Draft|null; attempts: Attempt[]; bestAttempt?: number; acceptedByUser?: boolean; error?: string; imageDataUrl?: string }`
 - Stage request schemas:
   - `researchRequestSchema = { topic?, link?, notes? }`, refined so topic or link is required and the link is http(s)
-  - `draftRequestSchema = { type, research: ResearchResult, topic?, notes?, previous?: Draft, feedback?: string[] }`
+  - `draftRequestSchema = { type, research: ResearchResult, topic?, notes?, previous?: Draft, feedback?: Issue[], userNote?: string }`. `feedback` is every issue from every earlier attempt, deduped, so fixes stay fixed.
   - `checkRequestSchema = { draft, research, topic?, notes? }`
   - `imageRequestSchema = { brief: Draft }`
   - `reportRequestSchema = { research, pieces: PieceResult[] }`
@@ -135,10 +137,10 @@
 - Test: `src/lib/channel-rules.test.ts`
 
 **Interfaces:**
-- Produces: `checkChannelRules(draft: Draft): string[]`, which returns readable violations, with `[]` meaning OK.
+- Produces: `checkChannelRules(draft: Draft): Issue[]`. Each violation is `{ severity: 'blocking', rule: 'format', quote: <the offending text>, problem: <readable, naming the limit>, fix }`, and `[]` means OK.
 
 - [ ] **Step 1: Write failing tests:**
-  - an X post of 281 chars → a violation mentioning `"X post 1"` and `"280"`
+  - an X post of 281 chars → a violation whose `problem` mentions `"X post 1"` and `"280"`
   - a Google headline of 31 chars → a violation mentioning `"30"`
   - a description of 91 chars → a violation mentioning `"90"`
   - Instagram with `hashtags: []` → a violation
@@ -168,8 +170,8 @@
     - `topicPrompt(input: {topic?, notes?}, page?: string)` nests `source_page` (link mode) and `user_notes`
     - `audiencePrompt(brand: Fact[], topic: Fact[], input)` nests `brand_facts`, `topic_facts`, `user_notes`
     - `mergePrompt(brand: Fact[], topic: Fact[], audience: Angle[])` nests `brand_facts`, `topic_facts`, `audience_research`
-    - `draftPrompt(req: DraftRequest)` nests `research_facts`, `angles`, `user_notes`, and, when present, `previous_draft` and `checker_feedback`
-    - `checkPrompt(req: CheckRequest)` nests `research_facts`, `user_notes`, `draft`
+    - `draftPrompt(req: DraftRequest)` nests `research_facts`, `angles`, `user_notes`, and, when present, `previous_draft`, `checker_feedback` and `revision_note`. With a `previous_draft` it asks for a targeted edit: "fix every issue in <checker_feedback>, follow <revision_note> if present, keep earlier fixes, and change nothing else".
+    - `checkPrompt(req: CheckRequest)` nests `research_facts`, `user_notes`, `draft`. It asks for `reasoning` (2–3 sentences explaining the verdict, written for the client) and `issues`, each quoting the offending line verbatim with a concrete fix. It defines severity: `blocking` = an unsupported or invented claim, a wrong brand fact, the wrong audience, a tone that breaks the brand rules, or a format break; everything else is `minor`.
     - `reportPrompt(req: ReportRequest)` nests `research_facts`, `pieces`
   - Each builder also states the channel spec for its type (counts and limits from Global Constraints).
 
@@ -178,6 +180,7 @@
   - `nest('a', undefined)` → `<a>(none)</a>`
   - `draftPrompt` with `feedback:['too pushy']` and `previous` contains `<checker_feedback>`, `too pushy`, and `<previous_draft>`
   - `draftPrompt` without feedback does not contain `<checker_feedback>`
+  - `draftPrompt` with `userNote:'drop the stat'` contains `<revision_note>` and `drop the stat`
   - `mergePrompt` contains all three tags `brand_facts`, `topic_facts`, `audience_research`
 - [ ] **Step 2: Run** `npm test prompts`. Expected: FAIL.
 - [ ] **Step 3: Implement** `models.ts` and `prompts.ts`.
@@ -250,8 +253,8 @@
 - Produces:
   - `draftPiece(req: DraftRequest, model = textModel()): Promise<Draft>`, which calls `generateObject` with `draftSchemas[req.type]` and `draftPrompt(req)`
   - `checkPiece(req: CheckRequest, model = textModel()): Promise<Check>`
-    - the LLM call uses `checkPrompt` and returns `{pass, reasons, factIdsUsed}`
-    - it merges in `checkChannelRules(req.draft)`: `pass = llm.pass && violations.length === 0`, and `reasons = [...llm.reasons, ...violations]`
+    - the LLM call uses `checkPrompt` at `temperature: 0` and returns `{reasoning, issues, factIdsUsed}`
+    - it merges in `checkChannelRules(req.draft)`: `issues = [...violations, ...llm.issues]`, and `pass = !issues.some(i => i.severity === 'blocking')`
   - `generateImage(req: ImageRequest, fetchImpl = fetch): Promise<{ imageDataUrl: string }>`
     - POSTs `https://openrouter.ai/api/v1/chat/completions` with `{ model: IMAGE_MODEL_ID, modalities: ['image','text'], messages: [{ role: 'user', content: <the brief fields rendered as a prompt> }] }`
     - reads `choices[0].message.images[0].image_url.url`
@@ -259,7 +262,8 @@
   - `writeReport(req: ReportRequest, model = textModel()): Promise<{ summary: string }>`, 3–6 sentences produced through `reportPrompt`
 
 - [ ] **Step 1: Write failing tests** using `MockLanguageModelV2`:
-  - `checkPiece` with an LLM that says pass and an X draft with a 300-char post → `pass === false`, and the reasons include the 280 violation
+  - `checkPiece` with an LLM that returns no issues and an X draft with a 300-char post → `pass === false`, and the issues include the 280 violation
+  - `checkPiece` with an LLM that returns only `minor` issues → `pass === true`
   - `draftPiece` with feedback → the prompt the mock received contains `<checker_feedback>` and the feedback text
   - `generateImage` with a fake fetch returning the image payload → returns its data URL
   - a fake fetch with no images → rejects `"No image returned"`
@@ -312,10 +316,11 @@
 - Behaviour:
   1. `research = await api.research(form)`. If this throws, the error propagates and the UI shows it, because the run cannot proceed.
   2. Each type in `form.types` goes through `runPiece`, all in parallel via `Promise.all`:
-     - loop until `MAX_ATTEMPTS`: draft with `{type, research, topic, notes, previous, feedback}` (no previous/feedback on attempt 1), then check, then push the attempt, and break on pass
-     - pass → `passed`, otherwise `failed` with `failureReasons` from the last check
-     - for `image` passed: call `api.image({brief})`, and a throw becomes `failed` with `"Image generation error: …"`
-     - any draft/check throw → `failed`, with `["Generation error: <message>"]`
+     - loop until `MAX_ATTEMPTS`: draft with `{type, research, topic, notes, previous, feedback}` (no previous/feedback on attempt 1; `previous` is the best attempt so far and `feedback` is `gatherFeedback(attempts)`), then check, then push the attempt, and break on pass
+     - pass → `passed`, otherwise `held` on `pickBest(attempts)`
+     - for `image` passed: call `api.image({brief})`, and a throw becomes `error` with `"Image generation error: …"`
+     - a draft/check throw → `error` with `"Generation error: <message>"`, or `held` with that `error` if earlier attempts exist
+  - `revisePiece(piece, userNote, {form, research}, api)` runs one more round with the note; `acceptPiece(piece, api)` marks it `passed` with `acceptedByUser` (and makes the image for an image brief). `src/lib/review.ts` holds `gatherFeedback`, `pickBest` and `analyseHold`.
   3. `report = await api.report({research, pieces})`. A throw gives the summary `"Report unavailable: <message>"`.
   4. Emit a `ProgressEvent` at each start, pass or fail, and finally `{stage:'done', status:'done'}`. Pieces are kept in `form.types` order.
 
@@ -377,7 +382,8 @@
   - `<ResearchPanel research />` is a collapsed `<details>` listing facts with linked sources, the angles, and any errors and conflicts
 - Card rules (from the spec):
   - **passed:** the main content is `PieceContent` (or the image), with a "Copy" button. `<details><summary>Show details</summary>` holds "Passed on attempt N of 3", every attempt's checker reasons, and the facts used (by `factIdsUsed`). For image, it also holds the brief.
-  - **failed:** a "Failed" badge, with the `failureReasons` as the main content. Show details holds the last draft and all attempts.
+  - **held:** a "Needs review" badge. The main content explains why: the best attempt's checker reasoning, each blocking issue (quote, problem, suggested fix), which rules blocked every attempt and which got fixed along the way. Actions: "Revise with my note" and "Use anyway". Details holds the closest draft and every attempt with its reasoning, issues and any user note.
+  - **error:** a "Not ready" badge with the error and a "Try again" button.
 
 - [ ] **Step 1: Write failing tests:**
   - `passed card shows content, hides reasons`: "Hello parents" is visible, and the reasons are inside a closed `details`

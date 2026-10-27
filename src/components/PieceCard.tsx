@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { CONTENT_META, draftToText } from '@/lib/content-meta';
 import type { Fact, PieceResult } from '@/lib/types';
 import { useDisclosure } from './Disclosure';
+import { HoldReason, NoteForm } from './HoldReview';
 import { ChannelIcon } from './icons';
 import { PieceContent } from './PieceContent';
 import { PieceDetails } from './PieceDetails';
@@ -28,15 +29,35 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-type Props = { piece: PieceResult; facts: Fact[]; imageDataUrl?: string; className?: string };
+type Props = {
+  piece: PieceResult;
+  facts: Fact[];
+  imageDataUrl?: string;
+  className?: string;
+  onRevise?: (note: string) => Promise<void>;
+  onAccept?: () => Promise<void>;
+};
 
-export function PieceCard({ piece, facts, imageDataUrl, className = '' }: Props) {
+export function PieceCard({ piece, facts, imageDataUrl, className = '', onRevise, onAccept }: Props) {
   const passed = piece.status === 'passed';
   const details = useDisclosure();
+  const [writing, setWriting] = useState(false);
+  const [busy, setBusy] = useState<'revise' | 'accept' | null>(null);
+
+  async function run(kind: 'revise' | 'accept', task: () => Promise<void>) {
+    setBusy(kind);
+    try {
+      await task();
+      setWriting(false);
+    } finally {
+      setBusy(null);
+    }
+  }
 
   return (
     <article
       aria-label={CONTENT_META[piece.type].title}
+      aria-busy={busy !== null}
       className={`rise flex flex-col rounded-2xl border border-line bg-surface shadow-[0_1px_2px_rgb(21_33_42/0.04)] ${className}`}
     >
       <header className="flex items-center justify-between gap-3 px-5 pb-3 pt-4">
@@ -44,34 +65,55 @@ export function PieceCard({ piece, facts, imageDataUrl, className = '' }: Props)
           <ChannelIcon type={piece.type} />
           {CONTENT_META[piece.type].title}
         </h3>
-        {!passed && (
+        {piece.status === 'held' && (
+          <span className="rounded-full bg-marigold/25 px-2.5 py-0.5 text-xs font-semibold text-ink">Needs review</span>
+        )}
+        {piece.status === 'error' && (
           <span className="rounded-full bg-danger/10 px-2.5 py-0.5 text-xs font-semibold text-danger">Not ready</span>
+        )}
+        {passed && piece.acceptedByUser && (
+          <span className="rounded-full bg-line px-2.5 py-0.5 text-xs font-semibold text-muted">Used anyway</span>
         )}
       </header>
 
-      <div className="flex-1 px-5 pb-4">
+      <div className="flex flex-1 flex-col gap-4 px-5 pb-4">
         {passed && piece.draft ? (
           <PieceContent draft={piece.draft} imageDataUrl={imageDataUrl ?? piece.imageDataUrl} />
+        ) : piece.status === 'held' ? (
+          <HoldReason piece={piece} />
         ) : (
           <div className="flex flex-col gap-2 rounded-xl border border-dashed border-danger/30 bg-danger/[0.03] p-4">
-            <p className="font-semibold">This one needs a human touch.</p>
-            <p className="text-sm text-muted">It didn&apos;t meet Vidya&apos;s brand rules, so we held it back:</p>
-            <ul className="ml-4 list-disc text-sm leading-6">
-              {piece.failureReasons.map((r, i) => (
-                <li key={i}>{r}</li>
-              ))}
-            </ul>
+            <p className="font-semibold">Something went wrong while writing this.</p>
+            <p className="text-sm leading-6">{piece.error}</p>
           </div>
+        )}
+        {writing && onRevise && (
+          <NoteForm busy={busy === 'revise'} onCancel={() => setWriting(false)} onSubmit={(note) => run('revise', () => onRevise(note))} />
         )}
       </div>
 
       <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-5 py-3">
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {passed && piece.draft && piece.type !== 'image' && <CopyButton text={draftToText(piece.draft)} />}
           {passed && piece.imageDataUrl && (
             <a href={piece.imageDataUrl} download="vidya-image.png" className={action}>
               Download
             </a>
+          )}
+          {piece.status === 'held' && !writing && onRevise && (
+            <button type="button" className={action} disabled={busy !== null} onClick={() => setWriting(true)}>
+              Revise with my note
+            </button>
+          )}
+          {piece.status === 'held' && piece.draft && onAccept && (
+            <button type="button" className={action} disabled={busy !== null} onClick={() => run('accept', onAccept)}>
+              {busy === 'accept' ? 'Working…' : 'Use anyway'}
+            </button>
+          )}
+          {piece.status === 'error' && onRevise && (
+            <button type="button" className={action} disabled={busy !== null} onClick={() => run('revise', () => onRevise(''))}>
+              {busy === 'revise' ? 'Trying…' : 'Try again'}
+            </button>
           )}
         </div>
         {details.button}

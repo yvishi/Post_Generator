@@ -1,13 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { InputForm } from '@/components/InputForm';
 import { ProgressView } from '@/components/ProgressView';
 import { Results } from '@/components/Results';
 import { createDemoApi } from '@/lib/demo-api';
-import { runPack, type ProgressEvent } from '@/lib/orchestrator';
-import { httpApi } from '@/lib/stage-api';
-import type { PackForm, PackResult } from '@/lib/types';
+import { acceptPiece, revisePiece, runPack, type ProgressEvent } from '@/lib/orchestrator';
+import { httpApi, type StageApi } from '@/lib/stage-api';
+import type { ContentType, PackForm, PackResult, PieceResult } from '@/lib/types';
 
 export default function Home() {
   const [form, setForm] = useState<PackForm | null>(null);
@@ -15,6 +15,7 @@ export default function Home() {
   const [result, setResult] = useState<PackResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(true);
+  const api = useRef<StageApi>(httpApi);
   const running = form !== null && result === null && error === null;
 
   async function generate(f: PackForm) {
@@ -24,12 +25,25 @@ export default function Home() {
     setResult(null);
     setError(null);
     const demo = new URLSearchParams(window.location.search).has('demo');
+    api.current = demo ? createDemoApi() : httpApi;
     try {
-      setResult(await runPack(f, demo ? createDemoApi() : httpApi, (e) => setEvents((prev) => [...prev, e])));
+      setResult(await runPack(f, api.current, (e) => setEvents((prev) => [...prev, e])));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }
+
+  // Follow-up actions on one piece after the pack is done. The report is not rewritten.
+  async function update(type: ContentType, change: (piece: PieceResult, r: PackResult) => Promise<PieceResult>) {
+    const piece = result?.pieces.find((p) => p.type === type);
+    if (!result || !piece) return;
+    const next = await change(piece, result);
+    setResult((r) => r && { ...r, pieces: r.pieces.map((p) => (p.type === type ? next : p)) });
+  }
+
+  const revise = (type: ContentType, note: string) =>
+    update(type, (piece, r) => revisePiece(piece, note, { form: form!, research: r.research }, api.current));
+  const accept = (type: ContentType) => update(type, (piece) => acceptPiece(piece, api.current));
 
   return (
     <div className="min-h-dvh">
@@ -89,7 +103,7 @@ export default function Home() {
         )}
 
         {running && <ProgressView events={events} types={form.types} />}
-        {result && <Results data={result} />}
+        {result && <Results data={result} onRevise={revise} onAccept={accept} />}
       </main>
     </div>
   );

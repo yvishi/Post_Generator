@@ -1,5 +1,6 @@
 import { MAX_ATTEMPTS } from '@/lib/orchestrator';
 import type { Fact, ImageBriefContent, PieceResult } from '@/lib/types';
+import { IssueItem } from './HoldReview';
 import { BriefFields, PieceContent } from './PieceContent';
 
 function Block({ title, children }: { title: string; children: React.ReactNode }) {
@@ -31,19 +32,22 @@ export function FactRows({ facts }: { facts: Fact[] }) {
   );
 }
 
+function verdict(piece: PieceResult) {
+  const n = (piece.bestAttempt ?? piece.attempts.length - 1) + 1;
+  if (piece.acceptedByUser) return `You chose to use attempt ${n} without the checker's approval`;
+  return piece.attempts.length > MAX_ATTEMPTS ? `Passed on attempt ${n}, after your note` : `Passed on attempt ${n} of ${MAX_ATTEMPTS}`;
+}
+
 /** Everything about how a piece was made: checks, attempts, facts, brief. */
 export function PieceDetails({ piece, facts }: { piece: PieceResult; facts: Fact[] }) {
   const passed = piece.status === 'passed';
-  const ids = piece.attempts.at(-1)?.check.factIdsUsed ?? [];
+  const best = piece.bestAttempt ?? piece.attempts.length - 1;
+  const ids = piece.attempts[best]?.check.factIdsUsed ?? [];
   const used = ids.map((id) => facts.find((f) => f.id === id) ?? { id, fact: 'Not in the research facts', sourceUrl: '' });
 
   return (
     <div className="flex flex-col gap-6 rounded-xl bg-canvas p-4 sm:p-5">
-      {passed && (
-        <p className="text-sm font-semibold text-peacock">
-          Passed on attempt {piece.attempts.length} of {MAX_ATTEMPTS}
-        </p>
-      )}
+      {passed && <p className="text-sm font-semibold text-peacock">{verdict(piece)}</p>}
 
       {piece.type === 'image' && piece.draft && (
         <Block title="Image brief">
@@ -52,7 +56,7 @@ export function PieceDetails({ piece, facts }: { piece: PieceResult; facts: Fact
       )}
 
       {!passed && piece.draft && piece.type !== 'image' && (
-        <Block title="Last draft">
+        <Block title={`Closest draft (attempt ${best + 1})`}>
           <div className="rounded-xl border border-dashed border-line bg-surface p-4">
             <PieceContent draft={piece.draft} />
           </div>
@@ -61,20 +65,22 @@ export function PieceDetails({ piece, facts }: { piece: PieceResult; facts: Fact
 
       {piece.attempts.length > 0 && (
         <Block title="Brand checks">
-          <ol className="flex flex-col gap-3">
+          <ol className="flex flex-col gap-4">
             {piece.attempts.map((a, i) => (
-              <li key={i} className="text-sm">
+              <li key={i} className="flex flex-col gap-1 text-sm">
                 <p className={`font-semibold ${a.check.pass ? 'text-peacock' : 'text-danger'}`}>
                   Attempt {i + 1}: {a.check.pass ? 'passed' : 'sent back for changes'}
                 </p>
-                {a.check.reasons.length > 0 ? (
-                  <ul className="ml-4 mt-1 list-disc leading-6 text-ink/80">
-                    {a.check.reasons.map((r, j) => (
-                      <li key={j}>{r}</li>
+                {a.userNote && <p className="text-muted">Your note: “{a.userNote}”</p>}
+                {a.check.reasoning && <p className="leading-6 text-ink/80">{a.check.reasoning}</p>}
+                {a.check.issues.length > 0 ? (
+                  <ul className="mt-1 flex flex-col gap-2.5">
+                    {a.check.issues.map((issue, j) => (
+                      <IssueItem key={j} issue={issue} />
                     ))}
                   </ul>
                 ) : (
-                  <p className="mt-0.5 text-muted">No notes.</p>
+                  !a.check.reasoning && <p className="text-muted">No notes.</p>
                 )}
               </li>
             ))}

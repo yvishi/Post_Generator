@@ -1,9 +1,10 @@
 import { BRAND_FACTS } from './brand-facts';
 import type { StageApi } from './stage-api';
-import type { Check, ContentType, Draft, ResearchResult } from './types';
+import type { Check, ContentType, Draft, Issue, ResearchResult } from './types';
 
 // Canned stage responses with realistic delays. Opened with `/?demo` so the UI can be
-// reviewed before the real routes exist. Google ads fail on purpose to show a failed card.
+// reviewed before the real routes exist. Google ads are held on purpose to show a held card;
+// revising them with any note passes.
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms * (0.7 + Math.random() * 0.6)));
 
@@ -87,13 +88,61 @@ const googleAttempts = [
   ],
 ];
 
-const googleReasons = [
-  ['Headline "Calm Board Exam Prep for Your Child" is 35 characters; the limit is 30.', '"Top Scores Guaranteed" promises a result that is not in the research facts.'],
-  ['"Top Scores Guaranteed" promises a result that is not in the research facts.'],
-  ['"Exam Results You Can Count On" implies guaranteed marks; no fact supports this.'],
+const guaranteed = (quote: string): Issue => ({
+  severity: 'blocking',
+  rule: 'unsupported_claim',
+  quote,
+  problem: 'Promises exam results. No research fact supports a guarantee, and parents read this as a claim about marks.',
+  fix: 'Promise the method instead, e.g. "Step-by-Step Exam Prep".',
+});
+
+const googleChecks: Check[] = [
+  {
+    pass: false,
+    reasoning:
+      'Two blocking problems. One headline is over the 30-character Google limit, and variation 3 promises top scores, which the facts cannot back up.',
+    issues: [
+      {
+        severity: 'blocking',
+        rule: 'format',
+        quote: 'Calm Board Exam Prep for Your Child',
+        problem: 'This headline is 35 characters. Google Ads headlines allow 30.',
+        fix: 'Shorten it, e.g. "Calm Board Exam Prep".',
+      },
+      guaranteed('Top Scores Guaranteed'),
+    ],
+    factIdsUsed: ['brand-4', 'brand-9'],
+  },
+  {
+    pass: false,
+    reasoning: 'The length problem is fixed, but variation 3 still promises top scores.',
+    issues: [guaranteed('Top Scores Guaranteed')],
+    factIdsUsed: ['brand-4', 'brand-9'],
+  },
+  {
+    pass: false,
+    reasoning:
+      'The drafter reworded the guarantee instead of removing it. "Exam Results You Can Count On" makes the same promise in softer words.',
+    issues: [
+      guaranteed('Exam Results You Can Count On'),
+      {
+        severity: 'minor',
+        rule: 'tone',
+        quote: 'Vidya AI Tutor',
+        problem: 'Reads like a label rather than a reason to click.',
+        fix: 'Lead with the benefit, e.g. "Homework Help That Explains".',
+      },
+    ],
+    factIdsUsed: ['brand-4', 'brand-9'],
+  },
 ];
 
-const pass = (factIdsUsed: string[]): Check => ({ pass: true, reasons: [], factIdsUsed });
+const pass = (factIdsUsed: string[], issues: Issue[] = []): Check => ({
+  pass: true,
+  reasoning: 'No blocking issues. Every claim maps to a research fact.',
+  issues,
+  factIdsUsed,
+});
 
 const demoImage =
   'data:image/svg+xml;utf8,' +
@@ -115,6 +164,7 @@ export function createDemoApi(): StageApi {
         const variations = structuredClone(googleAttempts[0]);
         if (n >= 2) variations[0].headlines[0] = 'Calm Board Exam Prep';
         if (n === 3) variations[2].headlines[0] = 'Exam Results You Can Count On';
+        if (n >= 4) variations[2].headlines[0] = 'Step-by-Step Exam Prep';
         return { type: r.type, content: { variations } };
       }
       return { type: r.type, content: drafts[r.type] } as Draft;
@@ -122,9 +172,22 @@ export function createDemoApi(): StageApi {
     async check(r) {
       await wait(1100);
       const n = tries[r.draft.type] ?? 1;
-      if (r.draft.type === 'google_ads') return { pass: false, reasons: googleReasons[n - 1], factIdsUsed: ['brand-4', 'brand-9'] };
+      if (r.draft.type === 'google_ads') return n <= 3 ? googleChecks[n - 1] : pass(['brand-4', 'brand-9']);
       if (r.draft.type === 'linkedin' && n === 1)
-        return { pass: false, reasons: ['Opens with exam anxiety in a way that leans fear-based; lead with reassurance.'], factIdsUsed: ['brand-4'] };
+        return {
+          pass: false,
+          reasoning: 'The opening leans on exam anxiety. Vidya speaks to parents with reassurance, not fear.',
+          issues: [
+            {
+              severity: 'blocking',
+              rule: 'tone',
+              quote: 'Board exam season does not have to mean late nights and tense dinners.',
+              problem: 'Leads with the fear before the help.',
+              fix: 'Open with what the parent gets, then mention the stress.',
+            },
+          ],
+          factIdsUsed: ['brand-4'],
+        };
       const used: Record<string, string[]> = {
         blog: ['topic-2', 'brand-15', 'brand-9', 'brand-8', 'brand-5'],
         linkedin: ['topic-2', 'brand-15', 'brand-9', 'brand-5', 'brand-10', 'brand-4'],
@@ -141,10 +204,10 @@ export function createDemoApi(): StageApi {
     },
     async report({ pieces }) {
       await wait(1200);
-      const failed = pieces.filter((p) => p.status === 'failed').length;
+      const failed = pieces.filter((p) => p.status !== 'passed').length;
       return {
         summary: `The pack leans on a "little and often" angle grounded in the 25-minute daily average and step-by-step explanations. ${
-          failed ? `${failed} piece${failed > 1 ? 's' : ''} failed: the Google ads kept implying guaranteed results, which no fact supports.` : ''
+          failed ? `${failed} piece${failed > 1 ? 's' : ''} need${failed > 1 ? '' : 's'} your review: the Google ads kept implying guaranteed results, which no fact supports.` : ''
         } The LinkedIn post needed one revision to soften a fear-based opening.`,
       };
     },

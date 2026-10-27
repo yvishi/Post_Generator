@@ -1,15 +1,22 @@
 'use client';
 
-import type { PackResult } from '@/lib/types';
+import type { ContentType, PackResult } from '@/lib/types';
 import { useDisclosure } from './Disclosure';
 import { PieceCard } from './PieceCard';
 import { ResearchPanel } from './ResearchPanel';
 
 const WIDE = new Set(['blog']);
 
-export function Results({ data }: { data: PackResult }) {
+type Props = {
+  data: PackResult;
+  onRevise?: (type: ContentType, note: string) => Promise<void>;
+  onAccept?: (type: ContentType) => Promise<void>;
+};
+
+export function Results({ data, onRevise, onAccept }: Props) {
   const details = useDisclosure('How this was made');
   const ready = data.pieces.filter((p) => p.status === 'passed').length;
+  const held = data.pieces.filter((p) => p.status === 'held').length;
   const image = data.pieces.find((p) => p.type === 'image' && p.status === 'passed')?.imageDataUrl;
 
   return (
@@ -20,6 +27,7 @@ export function Results({ data }: { data: PackResult }) {
             {ready} of {data.pieces.length}
           </span>{' '}
           ready to post
+          {held > 0 && <>, {held} waiting on your review</>}
         </p>
         {details.button}
       </div>
@@ -35,6 +43,8 @@ export function Results({ data }: { data: PackResult }) {
             facts={data.research.facts}
             imageDataUrl={p.type === 'instagram' || p.type === 'meta_ads' ? image : undefined}
             className={WIDE.has(p.type) ? 'lg:col-span-2' : ''}
+            onRevise={onRevise && ((note) => onRevise(p.type, note))}
+            onAccept={onAccept && (() => onAccept(p.type))}
           />
         ))}
       </div>

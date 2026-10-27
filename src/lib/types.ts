@@ -48,22 +48,44 @@ export type ImageBriefContent = z.infer<typeof draftSchemas.image>;
 export const draftSchema = z.object({ type: contentTypeSchema, content: z.unknown() });
 export type Draft = z.infer<typeof draftSchema>;
 
+export const ISSUE_RULES = ['unsupported_claim', 'brand_fact', 'tone', 'audience', 'format', 'other'] as const;
+
+// One problem the checker found. Only `blocking` issues fail a draft; `minor` ones go to the user as notes.
+export const issueSchema = z.object({
+  severity: z.enum(['blocking', 'minor']),
+  rule: z.enum(ISSUE_RULES),
+  quote: z.string(), // the offending line, verbatim; empty when the issue is about the whole piece
+  problem: z.string(),
+  fix: z.string(),
+});
+export type Issue = z.infer<typeof issueSchema>;
+
 export const checkSchema = z.object({
   pass: z.boolean(),
-  reasons: z.array(z.string()),
+  reasoning: z.string(), // the checker's short explanation of its verdict
+  issues: z.array(issueSchema),
   factIdsUsed: z.array(z.string()),
 });
 export type Check = z.infer<typeof checkSchema>;
 
-export const attemptSchema = z.object({ draft: draftSchema, check: checkSchema });
+export const attemptSchema = z.object({
+  draft: draftSchema,
+  check: checkSchema,
+  userNote: z.string().optional(),
+});
 export type Attempt = z.infer<typeof attemptSchema>;
 
+// passed: the checker approved it, or the user chose to use it anyway.
+// held: every attempt had blocking issues; `draft` is the best attempt, waiting on the user.
+// error: a stage call threw, so there may be nothing usable.
 export const pieceResultSchema = z.object({
   type: contentTypeSchema,
-  status: z.enum(['passed', 'failed']),
+  status: z.enum(['passed', 'held', 'error']),
   draft: draftSchema.nullable(),
   attempts: z.array(attemptSchema),
-  failureReasons: z.array(z.string()),
+  bestAttempt: z.number().int().nonnegative().optional(),
+  acceptedByUser: z.boolean().optional(),
+  error: z.string().optional(),
   imageDataUrl: z.string().optional(),
 });
 export type PieceResult = z.infer<typeof pieceResultSchema>;
@@ -99,7 +121,9 @@ export const draftRequestSchema = z.object({
   topic: z.string().optional(),
   notes: z.string().optional(),
   previous: draftSchema.optional(),
-  feedback: z.array(z.string()).optional(),
+  // Issues from every earlier attempt, not just the last, so fixes stay fixed.
+  feedback: z.array(issueSchema).optional(),
+  userNote: z.string().optional(),
 });
 export type DraftRequest = z.infer<typeof draftRequestSchema>;
 
