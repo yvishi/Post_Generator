@@ -23,6 +23,15 @@ describe('fetchPage', () => {
     await expect(fetchPage('https://x.com', boom)).rejects.toThrow('Could not read link');
   });
 
+  it('wraps a body read that times out or drops', async () => {
+    const stalled = (async () => {
+      const res = new Response('x', { headers: { 'content-type': 'text/html' } });
+      res.text = () => Promise.reject(new DOMException('timed out', 'TimeoutError'));
+      return res;
+    }) as unknown as typeof fetch;
+    await expect(fetchPage('https://x.com', stalled)).rejects.toThrow('Could not read link: the page took too long');
+  });
+
   it('extracts text', async () => {
     const page = await fetchPage('https://x.com', respond('<h1>Hi</h1><script>x()</script><a href="https://y.com">link</a>'));
     expect(page.url).toBe('https://x.com');
