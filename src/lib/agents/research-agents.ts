@@ -44,12 +44,30 @@ export async function researchBrand(
 }
 
 const URL_PATTERN = /https?:\/\/[^\s<>"')\]]+/g;
-const normalizeUrl = (url: string) => url.trim().replace(/[.,;:]+$/, '').replace(/\/+$/, '');
+const trimUrl = (url: string) => url.trim().replace(/[.,;:]+$/, '');
+
+/**
+ * Match key for a URL: scheme-less, lowercased host without `www.`, no fragment, no utm_* params,
+ * no trailing slash. Two URLs with the same key point at the same page.
+ */
+export function urlKey(url: string): string {
+  const raw = trimUrl(url);
+  try {
+    const u = new URL(raw);
+    const params = [...u.searchParams].filter(([k]) => !k.toLowerCase().startsWith('utm_'));
+    const query = params.length ? `?${new URLSearchParams(params)}` : '';
+    const host = u.host.toLowerCase().replace(/^www\./, '');
+    return `${host}${u.pathname.replace(/\/+$/, '')}${query}`;
+  } catch {
+    return raw.replace(/\/+$/, '').toLowerCase();
+  }
+}
 
 /**
  * Link mode: fetch the link and extract facts from it (sourceUrl is always the link).
  * Topic-only mode (R5): a web-search call writes notes with URLs, then a structured call extracts facts from them.
- * A fact whose sourceUrl is not among the search's URLs is dropped, since its attribution cannot be trusted.
+ * A fact whose sourceUrl is not among the search's URLs is dropped, since its attribution cannot be trusted;
+ * if that drops every fact, it throws so the stage records the loss instead of silently returning none.
  */
 export async function researchTopic(
   input: ResearchRequest,
@@ -66,18 +84,22 @@ export async function researchTopic(
 
   const search = await generateText({ model: deps.searchModel ?? defaultSearchModel(), prompt: topicPrompt(input) });
   const sourceUrls = search.sources.flatMap((s) => (s.sourceType === 'url' ? [s.url] : []));
-  const urls = [...sourceUrls, ...(search.text.match(URL_PATTERN) ?? [])];
-  const known = new Map(urls.map((u) => [normalizeUrl(u), normalizeUrl(u)]));
+  // Real provider sources are trusted alone; URLs in the prose are a fallback only when there are none,
+  // so a URL the search model invented in its text cannot pass.
+  const urls = sourceUrls.length ? sourceUrls : (search.text.match(URL_PATTERN) ?? []);
+  const known = new Map(urls.map((u) => [urlKey(u), trimUrl(u)]));
   if (known.size === 0) throw new Error('Web search returned no source URLs');
 
   const notes = sourceUrls.length ? `${search.text}\n\nSources:\n${sourceUrls.join('\n')}` : search.text;
   const out = await generate(model, topicOutput, topicPrompt(input, notes));
-  return number(
-    out.facts.flatMap((f) => {
-      const url = known.get(normalizeUrl(f.sourceUrl));
-      return url ? [{ ...f, sourceUrl: url }] : [];
-    }),
-  );
+  const traced = out.facts.flatMap((f) => {
+    const url = known.get(urlKey(f.sourceUrl));
+    return url ? [{ ...f, sourceUrl: url }] : [];
+  });
+  if (out.facts.length > 0 && traced.length === 0) {
+    throw new Error('no facts could be traced to a search source URL');
+  }
+  return number(traced);
 }
 
 /** Proposes parent-focused angles; each angle may only cite the brand and topic facts it was given. */

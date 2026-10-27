@@ -1,6 +1,6 @@
 import { MockLanguageModelV4 } from 'ai/test';
 import { describe, expect, it, vi } from 'vitest';
-import { mergeResearch, researchAudience, researchBrand, researchTopic } from '../agents/research-agents';
+import { mergeResearch, researchAudience, researchBrand, researchTopic, urlKey } from '../agents/research-agents';
 import { BRAND_FACTS } from '../brand-facts';
 import type { Angle, Fact } from '../types';
 import { runResearch, type ResearchAgents } from './research';
@@ -170,6 +170,52 @@ describe('research agents', () => {
     expect(promptText(search)).toContain('Board exam dates');
     expect(promptText(text)).toContain('cbse.gov.in/datesheet');
     expect(topicFacts).toEqual([{ id: 'topic-1', fact: 'CBSE exams start 15 Feb.', sourceUrl: 'https://cbse.gov.in/datesheet' }]);
+  });
+
+  it('normalizes source URLs when matching facts to search sources', async () => {
+    expect(urlKey('https://www.CBSE.gov.in/datesheet/')).toBe('cbse.gov.in/datesheet');
+    expect(urlKey('http://cbse.gov.in/datesheet#top')).toBe('cbse.gov.in/datesheet');
+    expect(urlKey('https://cbse.gov.in/datesheet?utm_source=x&id=2&UTM_medium=y')).toBe('cbse.gov.in/datesheet?id=2');
+
+    const search = mockModel('notes', { sources: [{ url: 'https://www.cbse.gov.in/datesheet/' }] });
+    const text = mockModel(
+      JSON.stringify({ facts: [{ id: 't', fact: 'Exams start 15 Feb.', sourceUrl: 'http://cbse.gov.in/datesheet?utm_source=g#a' }] }),
+    );
+    const facts = await researchTopic({ topic: 'x' }, { model: text, searchModel: search });
+    // The stored URL is the search's own URL, not the model's variant.
+    expect(facts).toEqual([{ id: 'topic-1', fact: 'Exams start 15 Feb.', sourceUrl: 'https://www.cbse.gov.in/datesheet/' }]);
+  });
+
+  it('provider sources override URLs in the notes text', async () => {
+    const search = mockModel('See https://invented.example/page', { sources: [{ url: 'https://real.example/a' }] });
+    const text = mockModel(
+      JSON.stringify({
+        facts: [
+          { id: 't1', fact: 'Real.', sourceUrl: 'https://real.example/a' },
+          { id: 't2', fact: 'Invented.', sourceUrl: 'https://invented.example/page' },
+        ],
+      }),
+    );
+    const facts = await researchTopic({ topic: 'x' }, { model: text, searchModel: search });
+    expect(facts.map((f) => f.fact)).toEqual(['Real.']);
+  });
+
+  it('topic-only mode throws when the search has no URLs or no fact can be traced', async () => {
+    await expect(
+      researchTopic({ topic: 'x' }, { model: mockModel('{"facts":[]}'), searchModel: mockModel('notes with no links') }),
+    ).rejects.toThrow('Web search returned no source URLs');
+
+    const untraced = mockModel(JSON.stringify({ facts: [{ id: 't', fact: 'F.', sourceUrl: 'https://other.example' }] }));
+    await expect(
+      researchTopic({ topic: 'x' }, { model: untraced, searchModel: mockModel('Found https://real.example/a') }),
+    ).rejects.toThrow('no facts could be traced to a search source URL');
+
+    // The stage turns that into a recorded error rather than a silent empty topic.
+    const result = await runResearch(
+      { topic: 'x' },
+      fakeAgents({ researchTopic: () => researchTopic({ topic: 'x' }, { model: untraced, searchModel: mockModel('Found https://real.example/a') }) }),
+    );
+    expect(result.errors).toEqual(['Topic research failed: no facts could be traced to a search source URL']);
   });
 
   it('brand research keeps the baseline and numbers new site facts in code', async () => {
