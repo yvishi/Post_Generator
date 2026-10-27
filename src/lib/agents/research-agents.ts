@@ -10,6 +10,10 @@ import { angleSchema, factSchema, type Angle, type Fact, type ResearchRequest } 
 
 export type PageFetcher = (url: string) => Promise<{ url: string; text: string }>;
 
+/** Below this much readable text a page is most likely rendered by JavaScript, so extraction would find nothing. */
+const MIN_PAGE_TEXT_CHARS = 200;
+const tooLittleText = (text: string) => text.trim().length < MIN_PAGE_TEXT_CHARS;
+
 const brandOutput = z.object({
   facts: z.array(z.object({ id: z.string(), fact: z.string() })),
   conflicts: z.array(z.string()),
@@ -37,7 +41,12 @@ export async function researchBrand(
   model: LanguageModel = textModel(),
   fetcher: PageFetcher = fetchPage,
 ): Promise<{ facts: Fact[]; conflicts: string[] }> {
-  const page = await fetcher(CLIENT_SITE_URL);
+  const page = await fetcher(CLIENT_SITE_URL).catch((e: unknown) => {
+    // fetchPage speaks of "link", but the marketer gave none here: name the site instead.
+    const reason = (e instanceof Error ? e.message : String(e)).replace(/^Could not read link: /, '');
+    throw new Error(`Could not read the Vidya AI site: ${reason}`);
+  });
+  if (tooLittleText(page.text)) throw new Error('the Vidya AI site had too little readable text (it may need JavaScript)');
   const out = await generate(model, brandOutput, brandPrompt(page.text));
   const siteFacts = out.facts
     .filter((f) => f.fact.trim())
@@ -70,18 +79,23 @@ export function urlKey(url: string): string {
  * Topic-only mode (R5): a web-search call writes notes with URLs, then a structured call extracts facts from them.
  * A fact whose sourceUrl is not among the search's URLs is dropped, since its attribution cannot be trusted;
  * if that drops every fact, it throws so the stage records the loss instead of silently returning none.
+ * It also throws when the link's page has too little text to read, or when no usable fact comes back.
  */
 export async function researchTopic(
   input: ResearchRequest,
   deps: { model?: LanguageModel; searchModel?: LanguageModel; fetcher?: PageFetcher } = {},
 ): Promise<Fact[]> {
   const model = deps.model ?? textModel();
-  const number = (facts: Fact[]) => facts.filter((f) => f.fact.trim()).map((f, i) => ({ ...f, id: `topic-${i + 1}` }));
+  const usable = (facts: Fact[]) => facts.filter((f) => f.fact.trim());
+  const number = (facts: Fact[]) => usable(facts).map((f, i) => ({ ...f, id: `topic-${i + 1}` }));
 
   if (input.link) {
     const page = await (deps.fetcher ?? fetchPage)(input.link);
+    if (tooLittleText(page.text)) throw new Error("the link's page had too little readable text (it may need JavaScript)");
     const out = await generate(model, topicOutput, topicPrompt(input, page.text));
-    return number(out.facts.map((f) => ({ ...f, sourceUrl: input.link! })));
+    const facts = number(out.facts.map((f) => ({ ...f, sourceUrl: input.link! })));
+    if (facts.length === 0) throw new Error('no usable facts found for the link');
+    return facts;
   }
 
   const search = await generateText({ model: deps.searchModel ?? defaultSearchModel(), prompt: topicPrompt(input), ...limits });
@@ -94,13 +108,13 @@ export async function researchTopic(
 
   const notes = sourceUrls.length ? `${search.text}\n\nSources:\n${sourceUrls.join('\n')}` : search.text;
   const out = await generate(model, topicOutput, topicPrompt(input, notes));
-  const traced = out.facts.flatMap((f) => {
+  const extracted = usable(out.facts);
+  if (extracted.length === 0) throw new Error('no usable facts found for the topic');
+  const traced = extracted.flatMap((f) => {
     const url = known.get(urlKey(f.sourceUrl));
     return url ? [{ ...f, sourceUrl: url }] : [];
   });
-  if (out.facts.length > 0 && traced.length === 0) {
-    throw new Error('no facts could be traced to a search source URL');
-  }
+  if (traced.length === 0) throw new Error('no facts could be traced to a search source URL');
   return number(traced);
 }
 

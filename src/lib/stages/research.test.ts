@@ -52,6 +52,9 @@ const mockModel = (text: string, extra: { sources?: { url: string }[] } = {}) =>
 
 const promptText = (model: MockLanguageModelV4) => JSON.stringify(model.doGenerateCalls[0].prompt);
 
+/** Page text long enough to pass the readable-text minimum. */
+const pageText = (lead: string) => `${lead} ${'More readable page text. '.repeat(10)}`;
+
 describe('runResearch', () => {
   it('runs brand and topic before audience, then merge', async () => {
     const calls: string[] = [];
@@ -133,7 +136,7 @@ describe('runResearch', () => {
 
 describe('research agents', () => {
   it('topic-only mode searches, link mode fetches', async () => {
-    const fetcher = vi.fn(async (url: string) => ({ url, text: 'Linked page text about board exams.' }));
+    const fetcher = vi.fn(async (url: string) => ({ url, text: pageText('Linked page text about board exams.') }));
 
     // Link mode: fetch the link; every fact's sourceUrl is the link, ids are assigned in code.
     const linkModel = mockModel(
@@ -218,8 +221,46 @@ describe('research agents', () => {
     expect(result.errors).toEqual(['Topic research failed: no facts could be traced to a search source URL']);
   });
 
+  it('a link page with too little text, or no extracted facts, is a recorded error', async () => {
+    const thin = vi.fn(async (url: string) => ({ url, text: 'Loading…' }));
+    const unused = mockModel('{"facts":[]}');
+    await expect(researchTopic({ link: 'https://spa.example' }, { model: unused, fetcher: thin })).rejects.toThrow(
+      "the link's page had too little readable text (it may need JavaScript)",
+    );
+    expect(unused.doGenerateCalls).toHaveLength(0);
+
+    const full = vi.fn(async (url: string) => ({ url, text: pageText('Nothing relevant.') }));
+    const empty = () => researchTopic({ link: 'https://x.example' }, { model: mockModel('{"facts":[{"id":"t","fact":" ","sourceUrl":"x"}]}'), fetcher: full });
+    await expect(empty()).rejects.toThrow('no usable facts found for the link');
+
+    const result = await runResearch({ link: 'https://x.example' }, fakeAgents({ researchTopic: empty }));
+    expect(result.errors).toEqual(['Topic research failed: no usable facts found for the link']);
+  });
+
+  it('topic-only mode with no extracted facts throws', async () => {
+    await expect(
+      researchTopic({ topic: 'x' }, { model: mockModel('{"facts":[]}'), searchModel: mockModel('Found https://real.example/a') }),
+    ).rejects.toThrow('no usable facts found for the topic');
+  });
+
+  it('brand research names the Vidya AI site when it cannot be read', async () => {
+    const down = vi.fn(async () => {
+      throw new Error('Could not read link: the page returned status 503');
+    });
+    await expect(researchBrand(mockModel('{}'), down)).rejects.toThrow('Could not read the Vidya AI site: the page returned status 503');
+
+    const thin = vi.fn(async (url: string) => ({ url, text: '<noscript>' }));
+    const unused = mockModel('{}');
+    await expect(researchBrand(unused, thin)).rejects.toThrow('the Vidya AI site had too little readable text (it may need JavaScript)');
+    expect(unused.doGenerateCalls).toHaveLength(0);
+
+    const result = await runResearch({ topic: 'x' }, fakeAgents({ researchBrand: () => researchBrand(unused, thin) }));
+    expect(result.errors[0]).toBe('Brand research failed: the Vidya AI site had too little readable text (it may need JavaScript)');
+    expect(result.facts).toEqual([...BRAND_FACTS, topicFact]);
+  });
+
   it('brand research keeps the baseline and numbers new site facts in code', async () => {
-    const fetcher = vi.fn(async (url: string) => ({ url, text: 'Vidya AI now ₹549/month.' }));
+    const fetcher = vi.fn(async (url: string) => ({ url, text: pageText('Vidya AI now ₹549/month.') }));
     const model = mockModel(
       JSON.stringify({
         facts: [{ id: 'brand-3', fact: 'Vidya AI costs ₹549/month.' }],
