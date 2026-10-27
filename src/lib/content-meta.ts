@@ -10,14 +10,14 @@ import type {
   XThreadContent,
 } from './types';
 
-export const CONTENT_META: Record<ContentType, { label: string; hint: string }> = {
-  blog: { label: 'Blog post', hint: 'Title and sections' },
-  linkedin: { label: 'LinkedIn post', hint: 'One post' },
-  x_thread: { label: 'X thread', hint: 'Posts up to 280 chars' },
-  instagram: { label: 'Instagram caption', hint: 'Caption and hashtags' },
-  meta_ads: { label: 'Meta ads (3)', hint: 'Text, headline, CTA' },
-  google_ads: { label: 'Google ads (3)', hint: 'Headlines ≤30, descriptions ≤90' },
-  image: { label: 'Image', hint: 'Brief, then a generated image' },
+export const CONTENT_META: Record<ContentType, { label: string; title: string; hint: string }> = {
+  blog: { label: 'Blog post', title: 'Blog post', hint: 'Article with sections' },
+  linkedin: { label: 'LinkedIn post', title: 'LinkedIn', hint: 'One post' },
+  x_thread: { label: 'X thread', title: 'X thread', hint: 'A short thread' },
+  instagram: { label: 'Instagram caption', title: 'Instagram', hint: 'Caption and hashtags' },
+  meta_ads: { label: 'Meta ads (3)', title: 'Meta ads', hint: '3 versions' },
+  google_ads: { label: 'Google ads (3)', title: 'Google search ads', hint: '3 versions' },
+  image: { label: 'Image', title: 'Image', hint: 'One visual' },
 };
 
 /** Plain-text version of a draft, for the Copy button. */

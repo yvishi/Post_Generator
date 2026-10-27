@@ -1,73 +1,59 @@
 @import "tailwindcss";
 
 @theme {
-  --color-paper: #f3f6f9;
-  --color-sheet: #fdfeff;
-  --color-ink: #1c2b4b;
-  --color-ink-soft: #5a6782;
-  --color-rule: #c9d7ea;
-  --color-margin: #d64545;
-  --color-tick: #2e7d5b;
-  --color-marigold: #f0b429;
+  --color-canvas: #f4f6f5;
+  --color-surface: #ffffff;
+  --color-ink: #15212a;
+  --color-muted: #5d6a72;
+  --color-line: #e1e6e3;
+  --color-peacock: #0b5d6b;
+  --color-peacock-soft: #e3efef;
+  --color-marigold: #f5b83d;
+  --color-danger: #b42318;
+  --color-link: #1a4fa0;
 }
 
 /* inline: next/font defines these vars on <body>, not :root. */
 @theme inline {
-  --font-display: var(--font-bitter);
-  --font-sans: var(--font-hanken);
+  --font-display: var(--font-young-serif);
+  --font-sans: var(--font-figtree);
   --font-mono: var(--font-jetbrains);
-  --font-hand: var(--font-kalam);
 }
 
 body {
-  background: var(--color-paper);
+  background: var(--color-canvas);
   color: var(--color-ink);
 }
 
-/* Exercise-book sheet: blue rules every 2rem and a red margin line. */
-.ruled-sheet {
-  --margin-x: 4.5rem;
-  background-color: var(--color-sheet);
-  background-image:
-    linear-gradient(to right, transparent calc(var(--margin-x) - 1px), rgb(214 69 69 / 0.55) calc(var(--margin-x) - 1px), rgb(214 69 69 / 0.55) var(--margin-x), transparent var(--margin-x)),
-    repeating-linear-gradient(to bottom, transparent 0 calc(2rem - 1px), rgb(201 215 234 / 0.6) calc(2rem - 1px) 2rem);
-}
-
-@media (max-width: 640px) {
-  .ruled-sheet {
-    --margin-x: 2.75rem;
-  }
-}
-
-/* A checker mark being written into the margin. */
-@keyframes ink-in {
+@keyframes rise {
   from {
-    clip-path: inset(0 100% 0 0);
+    opacity: 0;
+    transform: translateY(8px);
   }
   to {
-    clip-path: inset(0 0 0 0);
+    opacity: 1;
+    transform: none;
   }
 }
 
-.ink-in {
-  animation: ink-in 420ms ease-out both;
+.rise {
+  animation: rise 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--color-line) 0%, #eef1ef 50%, var(--color-line) 100%) 0 0 / 200% 100%;
+  animation: shimmer 1.6s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ink-in {
+  .rise,
+  .skeleton {
     animation: none;
   }
-}
-
-details > summary {
-  list-style: none;
-  cursor: pointer;
-}
-
-details > summary::-webkit-details-marker {
-  display: none;
-}
-
-details[open] > summary .chev {
-  transform: rotate(90deg);
 }
