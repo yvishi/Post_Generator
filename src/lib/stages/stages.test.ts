@@ -1,6 +1,7 @@
 import { MockLanguageModelV4 } from 'ai/test';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { CheckRequest, DraftRequest, Issue } from '../types';
+import { IMAGE_MODEL_ID } from '../models';
 import { checkPiece } from './check';
 import { draftPiece } from './draft';
 import { generateImage } from './image';
@@ -53,6 +54,14 @@ describe('checkPiece', () => {
     expect(check.issues).toEqual([minor]);
   });
 
+  it('an LLM pass:false with only minor issues still passes', async () => {
+    const minor: Issue = { severity: 'minor', rule: 'tone', quote: 'Hi', problem: 'A bit curt', fix: 'Warm it up' };
+    const model = mockModel(JSON.stringify({ pass: false, reasoning: 'meh', issues: [minor], factIdsUsed: [] }));
+    const check = await checkPiece(xDraft('Short post'), model);
+    expect(check.pass).toBe(true);
+    expect(check.issues).toEqual([minor]);
+  });
+
   it('a blocking LLM issue fails even when the LLM says pass', async () => {
     const blocking: Issue = { severity: 'blocking', rule: 'unsupported_claim', quote: 'x', problem: 'No fact', fix: 'Remove' };
     const model = mockModel(JSON.stringify({ pass: true, reasoning: 'ok', issues: [blocking], factIdsUsed: [] }));
@@ -89,6 +98,8 @@ describe('generateImage', () => {
     const init = fetchImpl.mock.calls[0][1] as { headers: Record<string, string>; body: string };
     expect(init.headers.Authorization).toBe('Bearer test-key');
     const body = JSON.parse(init.body);
+    expect(fetchImpl.mock.calls[0][0]).toBe('https://openrouter.ai/api/v1/chat/completions');
+    expect(body.model).toBe(IMAGE_MODEL_ID);
     expect(body.modalities).toEqual(['image', 'text']);
     expect(body.messages[0].content).toContain('Warm watercolor');
     expect(body.messages[0].content).toContain('Parent and child at a kitchen table');

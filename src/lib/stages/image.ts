@@ -9,7 +9,7 @@ function imagePrompt(brief: ImageRequest['brief']): string {
   if (!parsed.success) throw new Error('Image brief is not in the expected format');
   const { concept, style, composition } = parsed.data;
   return [
-    'Create one image for a social and ad campaign for Vidya AI, a homework-help companion for parents of CBSE/ICSE school children.',
+    'Create one image for a social and ad campaign for Vidya AI, a learning companion for parents of CBSE/ICSE school children.',
     `Concept: ${concept}`,
     `Style: ${style}`,
     `Composition: ${composition}`,
