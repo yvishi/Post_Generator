@@ -59,7 +59,24 @@ describe('checkPiece', () => {
     expect(format).toMatchObject({ severity: 'blocking', quote: '' });
     expect(format?.problem).toContain('280');
     expect(check.factIdsUsed).toEqual(['brand-1']);
-    expect(check.reasoning).toBe('Looks fine.');
+    expect(check.reasoning).toMatch(/^Automatic channel checks found 1 blocking problem\(s\): /);
+    expect(check.reasoning).toContain('Looks fine.');
+  });
+
+  it('reasoning leads with the automatic check failures and keeps the LLM text after them', async () => {
+    const model = mockModel(JSON.stringify({ pass: true, reasoning: 'All limits met.', issues: [], factIdsUsed: [] }));
+    const check = await checkPiece(xDraft('a'.repeat(300)), model);
+    const problem = check.issues.find((i) => i.rule === 'format')?.problem ?? '';
+
+    expect(problem).not.toBe('');
+    expect(check.reasoning.startsWith('Automatic channel checks found 1 blocking problem(s): ')).toBe(true);
+    expect(check.reasoning).toContain(problem);
+    expect(check.reasoning.endsWith(' All limits met.')).toBe(true);
+  });
+
+  it('reasoning is the LLM text unchanged when there are no channel violations', async () => {
+    const model = mockModel(JSON.stringify({ pass: true, reasoning: 'Grounded and warm.', issues: [], factIdsUsed: [] }));
+    expect((await checkPiece(xDraft('Short post'), model)).reasoning).toBe('Grounded and warm.');
   });
 
   it('passes when the LLM passes and the format is fine, keeping minor issues', async () => {
