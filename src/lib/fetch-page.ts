@@ -2,6 +2,12 @@ import { convert } from 'html-to-text';
 
 export const MAX_PAGE_CHARS = 20000;
 const TIMEOUT_MS = 10000;
+// Some sites answer 403 to Node's default user agent, so present as a desktop browser.
+const HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+};
 
 const fail = (reason: string) => new Error(`Could not read link: ${reason}`);
 
@@ -25,7 +31,7 @@ export async function fetchPage(url: string, fetchImpl: typeof fetch = fetch): P
 
   let res: Response;
   try {
-    res = await fetchImpl(url, { signal });
+    res = await fetchImpl(url, { signal, headers: HEADERS });
   } catch (e) {
     throw fail(reason(e));
   }

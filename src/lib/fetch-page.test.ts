@@ -32,6 +32,18 @@ describe('fetchPage', () => {
     await expect(fetchPage('https://x.com', stalled)).rejects.toThrow('Could not read link: the page took too long');
   });
 
+  it('sends a browser-like User-Agent and asks for HTML', async () => {
+    let init: RequestInit | undefined;
+    const spy = (async (_url: string, i?: RequestInit) => {
+      init = i;
+      return new Response('<p>Hi</p>', { headers: { 'content-type': 'text/html' } });
+    }) as unknown as typeof fetch;
+    await fetchPage('https://x.com', spy);
+    const headers = new Headers(init?.headers);
+    expect(headers.get('user-agent')).toMatch(/^Mozilla\/5\.0 /);
+    expect(headers.get('accept')).toContain('text/html');
+  });
+
   it('extracts text', async () => {
     const page = await fetchPage('https://x.com', respond('<h1>Hi</h1><script>x()</script><a href="https://y.com">link</a>'));
     expect(page.url).toBe('https://x.com');
