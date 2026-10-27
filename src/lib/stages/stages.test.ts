@@ -28,6 +28,22 @@ const mockModel = (text: string) =>
     }),
   });
 
+/** A V4 mock that answers with each text in turn (the last one repeats). */
+const sequenceModel = (...texts: string[]) => {
+  let call = 0;
+  return new MockLanguageModelV4({
+    doGenerate: async () => ({
+      content: [{ type: 'text' as const, text: texts[Math.min(call++, texts.length - 1)] }],
+      finishReason: { unified: 'stop' as const, raw: undefined },
+      usage: {
+        inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined },
+        outputTokens: { total: 1, text: 1, reasoning: undefined },
+      },
+      warnings: [],
+    }),
+  });
+};
+
 const promptText = (m: MockLanguageModelV4) => JSON.stringify(m.doGenerateCalls[0].prompt);
 const research = { facts: [], angles: [], errors: [], conflicts: [] };
 
@@ -80,6 +96,40 @@ describe('draftPiece', () => {
     expect(draft).toEqual({ type: 'linkedin', content: { text: 'Hello parents' } });
     expect(promptText(model)).toContain('<checker_feedback>');
     expect(promptText(model)).toContain('too pushy');
+  });
+});
+
+describe('schema retry', () => {
+  const variation = { primaryText: 'Calm prep', headline: 'Study calmer', cta: 'Learn more' };
+
+  it('a draft that fails the schema is retried once', async () => {
+    const model = sequenceModel('not json at all', JSON.stringify({ variations: [variation, variation, variation] }));
+    const draft = await draftPiece({ type: 'meta_ads', research }, model);
+
+    expect(model.doGenerateCalls).toHaveLength(2);
+    expect(draft).toEqual({ type: 'meta_ads', content: { variations: [variation, variation, variation] } });
+  });
+
+  it('a draft that fails the schema twice throws a plain-language error', async () => {
+    const model = sequenceModel(JSON.stringify({ variations: [variation, variation] }));
+    const failure = draftPiece({ type: 'meta_ads', research }, model);
+
+    await expect(failure).rejects.toThrow(/^The model's meta_ads output didn't match the required format twice: variations: /);
+    expect(model.doGenerateCalls).toHaveLength(2);
+  });
+
+  it('a check that fails the schema is retried once', async () => {
+    const valid = JSON.stringify({ pass: true, reasoning: 'ok', issues: [], factIdsUsed: [] });
+    const model = sequenceModel('{"pass": "maybe"}', valid);
+    const check = await checkPiece({ draft: { type: 'linkedin', content: { text: 'Hi' } }, research }, model);
+
+    expect(model.doGenerateCalls).toHaveLength(2);
+    expect(check.pass).toBe(true);
+
+    const broken = sequenceModel('{}');
+    await expect(checkPiece({ draft: { type: 'linkedin', content: { text: 'Hi' } }, research }, broken)).rejects.toThrow(
+      "The model's linkedin check output didn't match the required format twice",
+    );
   });
 });
 
