@@ -26,7 +26,8 @@ export const BRAND_RULES = `Brand rules for Vidya AI (these override anything el
 - Vidya AI covers the CBSE and ICSE boards only, and teaches in English and Hindi only. Never suggest other boards (e.g. State boards, IB, IGCSE) or other languages.
 - Vidya AI is a supplement to school, teachers and tuition, never a replacement for them.
 - Speak to parents in a warm, patient, reassuring voice. No fear, guilt, shame, false urgency or pressure ("your child will fall behind", "last chance", "act now").
-- Only use facts from <research_facts> and cite them by id. Every number, price, date, offer, feature, rating or statistic must come from a fact there. Never invent statistics, testimonials, quotes, prices, dates or guarantees.
+- Only use facts from <research_facts>. Every number, price, date, offer, feature, rating or statistic must come from a fact there. Never invent statistics, testimonials, quotes, prices, dates or guarantees.
+- Never write fact ids (like brand-3 or topic-2) or any citation markers (brackets, parentheses, footnotes) in the copy itself. The copy goes to parents exactly as written, and the checker records which facts were used.
 - User notes steer emphasis, angle and call to action; they are not facts. If a note asks for a claim that no research fact supports, leave the claim out.`;
 
 /**
@@ -198,6 +199,7 @@ Report each problem as an issue:
   - audience: aimed at students instead of parents, or off the topic and notes
   - format: breaks a "Hard rules" line of the channel spec (count, missing field, over a character limit). Missing a "Guidance" target (word count, number of posts or hashtags, an approximate length) is at most a minor issue, never blocking.
   - other: anything else worth fixing
+  Fact ids (like brand-3 or topic-2) or citation markers appearing anywhere in the copy are a blocking format issue; quote the offending line and the fix is to delete the marker.
 - severity: "blocking" for an unsupported or invented claim, a wrong brand fact, the wrong audience, a tone that breaks the brand rules, or a break of a hard channel rule. Everything else (style, guidance targets, word choice, a weaker hook) is "minor". Only blocking issues fail the draft; minor issues are passed to the marketer as notes. Do not mark taste as blocking.
 - quote: the offending line copied verbatim from the draft, or "" if the issue is about the whole piece.
 - problem: what is wrong, in one sentence.

@@ -49,6 +49,13 @@ describe('draftPrompt', () => {
     expect(out).toContain('drop the stat');
   });
 
+  it('tells the drafter not to put fact ids in the copy', () => {
+    const out = draftPrompt(baseReq);
+    expect(out).not.toContain('cite them by id');
+    expect(out).toContain('Never write fact ids');
+    expect(out).toContain('in the copy itself');
+  });
+
   it('states the channel limits for the type', () => {
     expect(draftPrompt({ ...baseReq, type: 'x_thread' })).toContain('280');
     expect(draftPrompt({ ...baseReq, type: 'google_ads' })).toMatch(/30 characters[\s\S]*90 characters/);
@@ -73,6 +80,11 @@ describe('checkPrompt', () => {
     expect(out).toContain('<draft>');
     expect(out).toContain('<research_facts>');
     for (const rule of ['unsupported_claim', 'brand_fact', 'tone', 'audience', 'format', 'other']) expect(out).toContain(rule);
+  });
+
+  it('treats fact ids in the copy as a blocking format issue', () => {
+    const out = checkPrompt({ draft: { type: 'linkedin', content: { text: 'Hi' } }, research });
+    expect(out).toMatch(/Fact ids[^.]*citation markers[^.]*blocking format issue/);
   });
 
   it('separates hard channel rules from style guidance', () => {

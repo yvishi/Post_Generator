@@ -75,3 +75,26 @@ describe('checkChannelRules', () => {
     expect(checkChannelRules({ type: 'blog', content: 'nope' }).length).toBeGreaterThan(0);
   });
 });
+
+describe('fact ids in the copy', () => {
+  it('flags fact ids in a LinkedIn post', () => {
+    const v = checkChannelRules({ type: 'linkedin', content: { text: 'Kids learn better (topic-6, brand-9).' } });
+    expect(v).toHaveLength(2);
+    expect(v[0]).toContain('"topic-6"');
+    expect(v[0]).toContain('LinkedIn');
+    expect(v[1]).toContain('"brand-9"');
+  });
+
+  it('flags a fact id inside a nested blog section body', () => {
+    const v = checkChannelRules({
+      type: 'blog',
+      content: { title: 'T', sections: [{ heading: 'a', body: 'b' }, { heading: 'c', body: 'Steps matter (site-2).' }] },
+    });
+    expect(v).toHaveLength(1);
+    expect(v[0]).toContain('"site-2"');
+  });
+
+  it('does not flag words that merely resemble an id', () => {
+    expect(checkChannelRules({ type: 'linkedin', content: { text: 'A well-known topic-based approach, brand-new ideas.' } })).toEqual([]);
+  });
+});
