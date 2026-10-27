@@ -1,26 +1,73 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --color-paper: #f3f6f9;
+  --color-sheet: #fdfeff;
+  --color-ink: #1c2b4b;
+  --color-ink-soft: #5a6782;
+  --color-rule: #c9d7ea;
+  --color-margin: #d64545;
+  --color-tick: #2e7d5b;
+  --color-marigold: #f0b429;
 }
 
+/* inline: next/font defines these vars on <body>, not :root. */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-display: var(--font-bitter);
+  --font-sans: var(--font-hanken);
+  --font-mono: var(--font-jetbrains);
+  --font-hand: var(--font-kalam);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
+/* Exercise-book sheet: blue rules every 2rem and a red margin line. */
+.ruled-sheet {
+  --margin-x: 4.5rem;
+  background-color: var(--color-sheet);
+  background-image:
+    linear-gradient(to right, transparent calc(var(--margin-x) - 1px), rgb(214 69 69 / 0.55) calc(var(--margin-x) - 1px), rgb(214 69 69 / 0.55) var(--margin-x), transparent var(--margin-x)),
+    repeating-linear-gradient(to bottom, transparent 0 calc(2rem - 1px), rgb(201 215 234 / 0.6) calc(2rem - 1px) 2rem);
+}
+
+@media (max-width: 640px) {
+  .ruled-sheet {
+    --margin-x: 2.75rem;
+  }
+}
+
+/* A checker mark being written into the margin. */
+@keyframes ink-in {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+.ink-in {
+  animation: ink-in 420ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ink-in {
+    animation: none;
+  }
+}
+
+details > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+details > summary::-webkit-details-marker {
+  display: none;
+}
+
+details[open] > summary .chev {
+  transform: rotate(90deg);
 }
